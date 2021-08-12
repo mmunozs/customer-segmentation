@@ -1,0 +1,94 @@
+import numpy as np  # numpy for math
+import pandas as pd      # for dataframes and csv files
+import matplotlib.pyplot as plt  # for plotting
+from matplotlib import animation  # animate 3D plots
+from mpl_toolkits.mplot3d import Axes3D  # 3D plots
+import seaborn as sns
+import re
+
+# Scikit learn
+from sklearn.model_selection import train_test_split
+from sklearn.cluster import KMeans
+from sklearn import manifold
+
+# TensorFlow and Keras
+import tensorflow as tf
+from tensorflow import keras
+from keras.models import Model, Sequential
+from keras.layers import Dense, Input
+from keras.preprocessing import sequence
+from tensorflow.keras.layers.experimental import preprocessing
+from tensorflow.keras.layers.experimental.preprocessing import Normalization
+
+from sklearn.cluster import KMeans
+from sklearn.mixture import GaussianMixture
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
+
+path = "C:/Users/mmuno/Documents/MSc Business Analytics/Dissertation/Datasets/"
+tf.random.set_seed(42)
+np.random.seed(42)
+
+df_cat = pd.read_csv(path +"df_cat.csv").copy().set_index('Customer ID')
+df_cat[df_cat<0]=0
+
+df_cat_array = np.array(df_cat)
+tf = df_cat_array/np.repeat(np.sum(df_cat_array, axis = 1), df_cat_array.shape[1], axis = 0).reshape(df_cat_array.shape[0],df_cat_array.shape[1])
+idf = np.log(df_cat_array.shape[0]/(1+np.count_nonzero(df_cat_array,axis=0)))
+df_cat_tf_idf = tf*idf
+
+scaler = MinMaxScaler()
+df_cat_s = scaler.fit_transform(df_cat_tf_idf)
+
+pca = PCA()
+pca.fit(df_cat_s)
+exp_var_cumul = np.cumsum(pca.explained_variance_ratio_)
+plt.bar(range(0,df_cat_s.shape[1]), exp_var_cumul)
+
+n_inputs = df_cat_s.shape[1]
+
+encoder = Input(shape = (n_inputs, ))
+e = Dense(int(n_inputs/1.5), activation = 'relu')(encoder) 
+e = Dense(int(n_inputs/2.25), activation = 'relu')(e)
+e = Dense(int(n_inputs/3.375), activation = 'relu')(e)
+
+n_bottleneck = 12
+bottleneck = Dense(n_bottleneck, activation = 'relu', name = 'ClusteringLayer')(e)
+
+decoder = Dense(int(n_inputs/3.375), activation = 'relu')(bottleneck)
+decoder = Dense(int(n_inputs/2.25), activation = 'relu')(decoder)
+decoder = Dense(int(n_inputs/1.5), activation = 'relu')(decoder)
+output = Dense(n_inputs,activation = 'softmax')(decoder)
+
+model = Model(inputs = encoder, outputs = output)
+model.summary()
+
+encoder = Model(inputs = model.input, outputs = bottleneck)
+
+model.compile(optimizer='adam', loss='mse')
+h = model.fit(df_cat_s, df_cat_s, epochs=150, verbose=0)
+review_encoded = encoder.predict(df_cat_s)
+review_decoded = model.predict(df_cat_s)
+
+history_dict = h.history
+loss_values = history_dict["loss"]
+epochs = range(150)
+plt.plot(epochs, loss_values, "bo", label = "training loss")
+plt.title("Training loss")
+plt.xlabel("epoch")
+plt.ylabel("loss")
+plt.legend()
+plt.show()
+
+kmeans = KMeans(n_clusters = 5, random_state = 13).fit_predict(review_encoded)
+
+tsne = TSNE(n_components = 2, metric = "euclidean", n_iter = 400,   random_state = 13).fit_transform(review_encoded)
+plt.scatter(tsne[:, 0], tsne[:, 1], c = kmeans, s = 1)
+plt.show()
+
+tsne = TSNE(n_components = 3, metric = "euclidean", random_state = 13).fit_transform(review_encoded)
+tsne_fig = plt.figure()
+ax = Axes3D(tsne_fig)
+q = ax.scatter(tsne[:,0], tsne[:,1], tsne[:,2], c=kmeans, marker="o", picker=True, cmap="rainbow")
+plt.show()
